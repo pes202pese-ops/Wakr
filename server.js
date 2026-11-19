@@ -1,4 +1,4 @@
-// وكر الأوغاد - سيرفر بدون أي مكتبات خارجية (Node 18+)
+// وكر الأوغاد - سيرفر (Node 18+) - يحفظ في Postgres إذا وُجد DATABASE_URL
 const http=require('http'),fs=require('fs'),path=require('path'),crypto=require('crypto');
 const PORT=process.env.PORT||3000, FILE=process.env.DATA_FILE||path.join(__dirname,'data.json');
 const CITIES=['غزة','الدوحة','دبي','طهران','طرابلس','مدينة العصابات'], FLY=[0,400,400,800,1000,300];
@@ -6,8 +6,15 @@ const CRIMES=[{n:'سرقة حقيبة',c:2,min:20,max:60,xp:3,p:.9},{n:'سطو �
 const SHOP={knife:{n:'سكين',t:'atk',v:5,price:300},pistol:{n:'مسدس',t:'atk',v:15,price:1500},armor:{n:'درع',t:'def',v:10,price:1000},bread:{n:'خبز (+20 صحة)',t:'heal',v:20,price:50}};
 let db={users:{},tokens:{},chat:[]};
 try{db=JSON.parse(fs.readFileSync(FILE))}catch(e){}
+const pool=process.env.DATABASE_URL?new(require('pg').Pool)({connectionString:process.env.DATABASE_URL,ssl:process.env.PGSSL==='off'?false:{rejectUnauthorized:false}}):null;
+const SQL='insert into kv(k,v) values(1,$1) on conflict(k) do update set v=excluded.v';
+async function initDb(){if(!pool)return;await pool.query('create table if not exists kv(k int primary key,v text)');
+ const r=await pool.query('select v from kv where k=1');if(r.rows.length)db=JSON.parse(r.rows[0].v);console.log('قاعدة البيانات جاهزة')}
 let dirty=false;const save=()=>{dirty=true};
-setInterval(()=>{if(dirty){dirty=false;fs.writeFile(FILE,JSON.stringify(db),()=>{})}},3000);
+setInterval(()=>{if(!dirty)return;dirty=false;
+ if(pool)pool.query(SQL,[JSON.stringify(db)]).catch(e=>{dirty=true;console.log('خطأ حفظ',e.message)});
+ else fs.writeFile(FILE,JSON.stringify(db),()=>{})},3000);
+process.on('SIGTERM',async()=>{try{if(pool&&dirty)await pool.query(SQL,[JSON.stringify(db)])}catch(e){}process.exit(0)});
 const maxE=u=>100,maxC=u=>20+u.level*2,maxH=u=>100+u.level*10,need=u=>50*u.level;
 function tick(u){const t=Date.now(),d=(t-u.t)/1000;u.t=t;
  u.energy=Math.min(maxE(u),u.energy+d/30);u.courage=Math.min(maxC(u),u.courage+d/60);
@@ -58,7 +65,7 @@ const API={
 function login(n,p){const u=db.users[n.toLowerCase()];if(!u||hash(p,u.salt)!==u.pw)throw'بيانات الدخول خاطئة';
  const t=crypto.randomBytes(24).toString('hex');db.tokens[t]=n.toLowerCase();save();return{token:t}}
 const MIME={'.html':'text/html;charset=utf-8','.js':'text/javascript','.css':'text/css'};
-http.createServer((req,res)=>{
+const server=http.createServer((req,res)=>{
  const url=req.url.split('?')[0];
  if(url.startsWith('/api/')){let body='';req.on('data',c=>{body+=c;if(body.length>1e5)req.destroy()});
   req.on('end',()=>{const send=(c,o)=>{res.writeHead(c,{'Content-Type':'application/json;charset=utf-8'});res.end(JSON.stringify(o))};
@@ -67,4 +74,5 @@ http.createServer((req,res)=>{
     if(!pubK){const t=(req.headers.authorization||'').replace('Bearer ','');u=db.users[db.tokens[t]];if(!u)return send(401,{error:'سجّل الدخول'});u.last=Date.now()}
     const r=f(body?JSON.parse(body):{},u);save();send(200,r)}catch(e){send(400,{error:typeof e=='string'?e:'خطأ'})}});return}
  fs.readFile(path.join(__dirname,'index.html'),(e,d)=>{if(e){res.writeHead(404);return res.end('404')}res.writeHead(200,{'Content-Type':'text/html;charset=utf-8'});res.end(d)});
-}).listen(PORT,()=>console.log('السيرفر يعمل على المنفذ '+PORT));
+});
+initDb().then(()=>server.listen(PORT,()=>console.log('السيرفر يعمل على المنفذ '+PORT))).catch(e=>{console.log('فشل الاتصال بقاعدة البيانات',e.message);process.exit(1)});
