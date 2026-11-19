@@ -1,0 +1,60 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>وكر الأوغاد</title>
+<style>
+:root{--bg:#0c1424;--p:#15233d;--l:#2b4470;--ink:#eaf0fb;--m:#8ea3c4;--g:#f0b63a;--r:#d2433a;--b:#3d8bff;--gr:#4cb26a;color-scheme:dark}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Tahoma,sans-serif}
+body{max-width:560px;margin:auto;padding:8px 8px 80px}
+.bar{background:var(--p);border:1px solid var(--l);border-radius:8px;padding:8px}
+.top{display:flex;justify-content:space-between;font-weight:700;margin-bottom:6px}.g{color:var(--g)}
+.m{margin:4px 0;font-size:12px;color:var(--m)}.t{height:10px;background:#0a1020;border-radius:5px;overflow:hidden;margin-top:2px}.t i{display:block;height:100%}
+.card{background:var(--p);border:1px solid var(--l);border-radius:8px;padding:10px;margin:8px 0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+button{font:inherit;font-weight:700;background:var(--b);color:#fff;border:0;border-radius:6px;padding:10px 14px;min-height:44px}
+button.r{background:var(--r)}button.o{background:transparent;border:1px solid var(--l)}button:disabled{opacity:.4}
+input{font:inherit;width:100%;padding:11px;margin:5px 0;border-radius:6px;border:1px solid var(--l);background:var(--bg);color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--g)}
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--p);border-top:1px solid var(--l);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px))}
+nav div{display:flex;max-width:560px;margin:auto;gap:4px}nav button{flex:1;background:none;color:var(--m);padding:8px 0;font-size:13px}nav .on{color:var(--g);border-top:3px solid var(--g);border-radius:0}
+#log{background:#0a1020;border:1px solid var(--l);border-radius:6px;padding:9px;margin:8px 0;font-size:14px;min-height:40px}
+.c{font-size:14px;padding:3px 0;border-bottom:1px solid #1d2f50}.c b{color:var(--g)}.h{max-height:55vh;overflow:auto}
+</style></head><body>
+<div id="app"></div><div id="log"></div><div id="v"></div><nav><div id="nav"></div></nav>
+<script>
+var T=localStorage.getItem('wk_t'),M=null,tab='city',cache={};
+function $(i){return document.getElementById(i)}
+function say(t){$('log').textContent=t}
+async function api(m,p,b){var r=await fetch('/api'+p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+T},body:b?JSON.stringify(b):undefined});
+ var d=await r.json();if(r.status==401){T=null;localStorage.removeItem('wk_t');render()}if(!r.ok)throw d.error||'خطأ';return d}
+async function act(m,p,b){try{var r=await api(m,p,b);if(r.msg)say(r.msg);await load()}catch(e){say(e)}}
+async function auth(kind){var u=$('u').value,p=$('p').value;try{var r=await api('POST','/'+kind,{u:u,p:p});T=r.token;localStorage.setItem('wk_t',T);await load()}catch(e){say(e)}}
+function bar(l,v,mx,c){return '<div class="m">'+l+' '+v+'/'+mx+'<div class="t"><i style="width:'+Math.min(100,v/mx*100)+'%;background:'+c+'"></i></div></div>'}
+function secs(t){return Math.max(0,Math.ceil((t-Date.now())/1000))}
+async function load(){if(!T)return render();try{M=await api('GET','/me');await extra();render()}catch(e){say(e)}}
+async function extra(){if(tab=='city'&&!cache.crimes)cache.crimes=await api('GET','/crimes');
+ if(tab=='shop'&&!cache.shop)cache.shop=await api('GET','/shop');
+ if(tab=='fly'&&!cache.fl)cache.fl=await api('GET','/flights');
+ if(tab=='pl')cache.pl=await api('GET','/players');
+ if(tab=='chat')cache.chat=await api('GET','/chat');
+ if(tab=='rank')cache.rank=await api('GET','/rank')}
+function render(){
+ if(!T||!M){$('app').innerHTML='<div class="card"><h2>وكر الأوغاد</h2><input id="u" placeholder="اسم اللاعب"><input id="p" type="password" placeholder="كلمة السر"><div class="row"><button onclick="auth(\'login\')">دخول</button><button class="o" onclick="auth(\'register\')">حساب جديد</button></div></div>';$('v').innerHTML='';$('nav').innerHTML='';return}
+ var s='<div class="bar"><div class="top"><span>'+M.name+' — مستوى '+M.level+'</span><span class="g">'+M.cash+' $ · '+M.gold+' ذهب</span></div>'+
+ bar('طاقة',M.energy,M.maxE,'var(--b)')+bar('شجاعة',M.courage,M.maxC,'var(--gr)')+bar('صحة',M.health,M.maxH,'var(--r)')+bar('خبرة',M.xp,M.need,'var(--g)')+
+ '<div class="m">'+(M.trip?'مسافر… '+secs(M.trip.until)+' ث':'المدينة: '+M.cityName)+(M.jailUntil>Date.now()?' — سجن '+secs(M.jailUntil)+' ث':'')+(M.hospitalUntil>Date.now()?' — مستشفى '+secs(M.hospitalUntil)+' ث':'')+'</div></div>';
+ $('app').innerHTML=s;
+ var tabs=[['city','المدينة'],['pl','اللاعبون'],['shop','المتجر'],['fly','المطار'],['chat','شات'],['rank','الترتيب']];
+ $('nav').innerHTML=tabs.map(function(x){return '<button class="'+(tab==x[0]?'on':'')+'" onclick="tab=\''+x[0]+'\';load()">'+x[1]+'</button>'}).join('');
+ var h='';
+ if(tab=='city'){h+='<h3>الجرائم</h3>';(cache.crimes||[]).forEach(function(c,i){h+='<div class="card row"><div><b>'+c.n+'</b><div class="m">شجاعة '+c.c+' · ربح '+c.min+'–'+c.max+' · نجاح '+Math.round(c.p*100)+'%</div></div><button class="r" onclick="act(\'POST\',\'/crime\',{id:'+i+'})">نفّذ</button></div>'});
+  h+='<div class="card row"><span>المستشفى</span><button onclick="act(\'POST\',\'/heal\')">عالج</button></div><div class="card row"><span>السجن</span><button class="o" onclick="act(\'POST\',\'/bail\')">كفالة</button></div>'}
+ if(tab=='pl'){h+='<h3>لاعبون في '+M.cityName+'</h3>';var l=cache.pl||[];if(!l.length)h+='<div class="card m">لا أحد هنا الآن. ادعُ أصدقاءك أو سافر لمدينة أخرى.</div>';
+  l.forEach(function(p){h+='<div class="card row"><span><b>'+p.name+'</b> — مستوى '+p.level+(p.hp?' (مستشفى)':'')+'</span><button class="r" onclick="act(\'POST\',\'/attack\',{target:\''+p.name+'\'})">هجوم</button></div>'})}
+ if(tab=='shop'){h+='<h3>المتجر</h3><div class="m">هجومك '+M.inv.atk+' · دفاعك '+M.inv.def+'</div>';var S=cache.shop||{};Object.keys(S).forEach(function(k){h+='<div class="card row"><span>'+S[k].n+'<div class="m">'+S[k].price+' $</div></span><button onclick="act(\'POST\',\'/buy\',{item:\''+k+'\'})">شراء</button></div>'})}
+ if(tab=='fly'){h+='<h3>المطار</h3>';(cache.fl||[]).forEach(function(f){h+='<div class="card row"><span>'+f.n+'<div class="m">'+f.price+' $ · '+f.secs+' ث</div></span>'+(f.id==M.city?'<span class="m">أنت هنا</span>':'<button onclick="act(\'POST\',\'/fly\',{to:'+f.id+'})">سفر</button>')+'</div>'})}
+ if(tab=='chat'){h+='<div class="card h">'+(cache.chat||[]).map(function(c){return '<div class="c"><b>'+esc(c.n)+':</b> '+esc(c.t)+'</div>'}).join('')+'</div><div class="row"><input id="ct" placeholder="اكتب رسالة"><button onclick="sendc()">إرسال</button></div>'}
+ if(tab=='rank'){h+='<h3>أقوى اللاعبين</h3>'+(cache.rank||[]).map(function(r,i){return '<div class="card row"><span>'+(i+1)+'. <b>'+esc(r.name)+'</b></span><span class="m">مستوى '+r.level+' · '+r.wins+' فوز</span></div>'}).join('')}
+ var a=document.activeElement;if(a&&a.id=='ct')return;$('v').innerHTML=h}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function sendc(){var t=$('ct').value;if(!t)return;api('POST','/chat',{t:t}).then(function(){$('ct').value='';load()}).catch(say)}
+load();setInterval(function(){if(T&&!(document.activeElement&&document.activeElement.tagName=='INPUT'))load()},5000);
+</script></body></html>
