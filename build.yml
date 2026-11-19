@@ -1,0 +1,164 @@
+name: build-apk
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/build.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Create app
+        run: |
+          flutter create --platforms=android --org com.wakr --project-name wakr_game app
+          cd app
+          flutter pub add webview_flutter shared_preferences
+          sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' android/app/src/main/AndroidManifest.xml
+          sed -i 's#android:label="[^"]*"#android:label="وكر الأوغاد"#' android/app/src/main/AndroidManifest.xml
+          cat > lib/main.dart <<'EOF'
+          import 'package:flutter/material.dart';
+          import 'package:shared_preferences/shared_preferences.dart';
+          import 'package:webview_flutter/webview_flutter.dart';
+
+          void main() => runApp(MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: ThemeData.dark(useMaterial3: true),
+              home: const Gate()));
+
+          class Gate extends StatefulWidget {
+            const Gate({super.key});
+            @override
+            State<Gate> createState() => _GateState();
+          }
+
+          class _GateState extends State<Gate> {
+            String? url;
+            bool ready = false;
+            final ctl = TextEditingController();
+
+            @override
+            void initState() {
+              super.initState();
+              SharedPreferences.getInstance().then((p) {
+                setState(() {
+                  url = p.getString('url');
+                  ready = true;
+                });
+              });
+            }
+
+            Future<void> setUrl(String? v) async {
+              final p = await SharedPreferences.getInstance();
+              if (v == null) {
+                await p.remove('url');
+              } else {
+                await p.setString('url', v);
+              }
+              setState(() => url = v);
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              if (!ready) {
+                return const Scaffold(body: Center(child: CircularProgressIndicator()));
+              }
+              if (url == null) {
+                return Scaffold(
+                    body: SafeArea(
+                        child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Directionality(
+                                textDirection: TextDirection.rtl,
+                                child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Text('وكر الأوغاد',
+                                          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 16),
+                                      const Text('الصق رابط السيرفر'),
+                                      const SizedBox(height: 8),
+                                      TextField(
+                                          controller: ctl,
+                                          keyboardType: TextInputType.url,
+                                          textDirection: TextDirection.ltr,
+                                          decoration: const InputDecoration(
+                                              border: OutlineInputBorder(), hintText: 'https://...')),
+                                      const SizedBox(height: 12),
+                                      FilledButton(
+                                          onPressed: () {
+                                            var v = ctl.text.trim();
+                                            if (v.isEmpty) return;
+                                            if (!v.startsWith('http')) v = 'https://$v';
+                                            setUrl(v);
+                                          },
+                                          child: const Text('ابدأ اللعب')),
+                                    ])))));
+              }
+              return GameView(url: url!, onReset: () => setUrl(null));
+            }
+          }
+
+          class GameView extends StatefulWidget {
+            final String url;
+            final VoidCallback onReset;
+            const GameView({super.key, required this.url, required this.onReset});
+            @override
+            State<GameView> createState() => _GameViewState();
+          }
+
+          class _GameViewState extends State<GameView> {
+            late final WebViewController c;
+            bool err = false;
+
+            @override
+            void initState() {
+              super.initState();
+              c = WebViewController()
+                ..setJavaScriptMode(JavaScriptMode.unrestricted)
+                ..setBackgroundColor(const Color(0xFF0C1424))
+                ..setNavigationDelegate(NavigationDelegate(onWebResourceError: (e) {
+                  if (e.isForMainFrame ?? true) setState(() => err = true);
+                }))
+                ..loadRequest(Uri.parse(widget.url));
+            }
+
+            @override
+            Widget build(BuildContext context) {
+              if (err) {
+                return Scaffold(
+                    body: Center(
+                        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  const Text('تعذّر الاتصال بالسيرفر'),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                      onPressed: () {
+                        setState(() => err = false);
+                        c.loadRequest(Uri.parse(widget.url));
+                      },
+                      child: const Text('إعادة المحاولة')),
+                  TextButton(onPressed: widget.onReset, child: const Text('تغيير الرابط')),
+                ])));
+              }
+              return Scaffold(body: SafeArea(child: WebViewWidget(controller: c)));
+            }
+          }
+          EOF
+      - name: Build APK
+        working-directory: app
+        run: flutter build apk --release
+      - name: Publish APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "apk-${{ github.run_number }}" app/build/app/outputs/flutter-apk/app-release.apk \
+            --title "وكر الأوغاد ${{ github.run_number }}" --notes "ملف التثبيت على أندرويد"
